@@ -26,18 +26,40 @@ defmodule TTM.ProjectionsTest do
     end
   end
 
+  defmodule LaneProjection do
+    @moduledoc false
+    @behaviour TTM.Projection
+
+    @impl true
+    def init, do: %{}
+
+    @impl true
+    def apply(%{lane: lane}, state) do
+      Map.update(state, lane, 1, &(&1 + 1))
+    end
+
+    @impl true
+    def finalize(state), do: state
+  end
+
   setup do
     TTM.Trace.reset!()
     CountingProjection.reset!()
 
-    :ok = TTM.Trace.append(record("t-1"))
-    :ok = TTM.Trace.append(record("t-2"))
+    :ok = TTM.Trace.append(record("t-1", "main"))
+    :ok = TTM.Trace.append(record("t-2", "main"))
+    :ok = TTM.Trace.append(record("t-3", "shadow"))
     :ok
   end
 
-  test "rebuild consumes stream" do
-    assert :ok = TTM.Projections.rebuild(CountingProjection)
-    assert CountingProjection.count() == 2
+  test "rebuild consumes stream for legacy projections" do
+    assert {:ok, :ok} = TTM.Projections.rebuild(CountingProjection)
+    assert CountingProjection.count() == 3
+  end
+
+  test "rebuild supports stateful projections" do
+    assert {:ok, result} = TTM.Projections.rebuild(LaneProjection)
+    assert result == %{"main" => 2, "shadow" => 1}
   end
 
   test "rebuild rejects invalid projection" do
@@ -48,7 +70,7 @@ defmodule TTM.ProjectionsTest do
     assert TTM.Projections.list() == []
   end
 
-  defp record(transition_id) do
+  defp record(transition_id, lane) do
     %{
       thread_id: "thread-1",
       transition_id: transition_id,
@@ -57,7 +79,7 @@ defmodule TTM.ProjectionsTest do
       to_state_ref: "s2",
       admissibility: "rule:v1",
       confidence: 0.8,
-      lane: "main",
+      lane: lane,
       seal: "seal-#{transition_id}"
     }
   end

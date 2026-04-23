@@ -1,8 +1,42 @@
 defmodule TTM.TraceTest do
   use ExUnit.Case, async: false
 
+  defmodule CapturingStore do
+    @moduledoc false
+
+    @agent __MODULE__.Agent
+
+    def append(record) do
+      ensure_started()
+      Agent.update(@agent, fn records -> [record | records] end)
+      :ok
+    end
+
+    def stream(_opts) do
+      ensure_started()
+      @agent |> Agent.get(&Enum.reverse/1) |> Stream.map(& &1)
+    end
+
+    def reset! do
+      ensure_started()
+      Agent.update(@agent, fn _ -> [] end)
+      :ok
+    end
+
+    defp ensure_started do
+      case Process.whereis(@agent) do
+        nil -> Agent.start_link(fn -> [] end, name: @agent)
+        _ -> :ok
+      end
+
+      :ok
+    end
+  end
+
   setup do
+    Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
     TTM.Trace.reset!()
+    on_exit(fn -> Application.delete_env(:ttm, :trace_store) end)
     :ok
   end
 
@@ -27,6 +61,16 @@ defmodule TTM.TraceTest do
   test "append validates confidence in range 0..1" do
     assert {:error, {:invalid_confidence, 1.5}} =
              TTM.Trace.append(record("t-1", "s1", "s2", confidence: 1.5))
+  end
+
+  test "trace delegates to configured store" do
+    Application.put_env(:ttm, :trace_store, CapturingStore)
+    CapturingStore.reset!()
+
+    entry = record("t-custom", "x", "y")
+
+    assert :ok = TTM.Trace.append(entry)
+    assert Enum.to_list(TTM.Trace.stream()) == [entry]
   end
 
   test "verify exists as T-Trace integration stub" do
