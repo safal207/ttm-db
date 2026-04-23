@@ -63,6 +63,27 @@ defmodule TTM.TraceTest do
              TTM.Trace.append(record("t-1", "s1", "s2", confidence: 1.5))
   end
 
+
+  test "append rejects duplicate transition identity within a thread" do
+    first = record("t-1", "s1", "s2")
+    duplicate = record("t-1", "s2", "s3")
+
+    assert :ok = TTM.Trace.append(first)
+
+    assert {:error, {:duplicate_transition, {"thread-1", "t-1"}}} =
+             TTM.Trace.append(duplicate)
+  end
+
+  test "same transition_id is allowed for different threads" do
+    first = record("t-1", "s1", "s2")
+    second =
+      record("t-1", "s2", "s3")
+      |> Map.put(:thread_id, "thread-2")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+  end
+
   test "trace delegates to configured store" do
     Application.put_env(:ttm, :trace_store, CapturingStore)
     CapturingStore.reset!()

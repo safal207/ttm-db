@@ -34,7 +34,8 @@ defmodule TTM.Trace do
   @spec append(record()) :: :ok | {:error, term()}
   def append(record) when is_map(record) do
     with :ok <- validate_required_fields(record),
-         :ok <- validate_confidence(record) do
+         :ok <- validate_confidence(record),
+         :ok <- validate_transition_uniqueness(record) do
       store().append(record)
     end
   end
@@ -87,4 +88,18 @@ defmodule TTM.Trace do
   end
 
   defp validate_confidence(_), do: {:error, {:invalid_confidence, :missing}}
+
+  defp validate_transition_uniqueness(record) do
+    key = transition_key(record)
+
+    exists? =
+      stream()
+      |> Enum.any?(fn existing -> transition_key(existing) == key end)
+
+    if exists?, do: {:error, {:duplicate_transition, key}}, else: :ok
+  end
+
+  defp transition_key(%{thread_id: thread_id, transition_id: transition_id}),
+    do: {thread_id, transition_id}
+
 end
