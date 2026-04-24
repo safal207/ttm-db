@@ -122,5 +122,4 @@ defmodule TTM.Trace do
   end
 
   defp validate_confidence(_), do: {:error, {:validation, {:invalid_confidence, :missing}}}
-
 end

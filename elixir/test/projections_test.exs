@@ -67,6 +67,7 @@ defmodule TTM.ProjectionsTest do
       Application.delete_env(:ttm, :projections)
       Application.delete_env(:ttm, :allow_trace_reset)
     end)
+
     :ok
   end
 

@@ -33,7 +33,6 @@ defmodule TTM.TraceTest do
     end
   end
 
-
   defmodule CapturingIntegrity do
     @moduledoc false
 
@@ -78,6 +77,7 @@ defmodule TTM.TraceTest do
     Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
     Application.put_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
     :ok = TTM.Trace.reset!()
+
     on_exit(fn ->
       Application.delete_env(:ttm, :allow_trace_reset)
       Application.delete_env(:ttm, :trace_store)
@@ -86,6 +86,7 @@ defmodule TTM.TraceTest do
       Application.delete_env(:ttm, :trace_verify_mfa)
       File.rm(dets_path())
     end)
+
     :ok
   end
 
@@ -135,7 +136,6 @@ defmodule TTM.TraceTest do
     assert :lane in invalid_fields
   end
 
-
   test "append rejects duplicate transition identity within a thread" do
     first = record("t-1", "s1", "s2")
     duplicate = record("t-1", "s2", "s3")
@@ -160,6 +160,7 @@ defmodule TTM.TraceTest do
 
   test "same transition_id is allowed for different threads" do
     first = record("t-1", "s1", "s2")
+
     second =
       record("t-1", "s2", "s3")
       |> Map.put(:thread_id, "thread-2")
@@ -177,7 +178,6 @@ defmodule TTM.TraceTest do
     assert :ok = TTM.Trace.append(entry)
     assert Enum.to_list(TTM.Trace.stream()) == [entry]
   end
-
 
   test "dets store persists appended records on disk" do
     dets_path = dets_path()
@@ -259,6 +259,16 @@ defmodule TTM.TraceTest do
 
     assert {:error, :reset_disabled} = TTM.Trace.InMemoryStore.reset!()
     assert {:error, :reset_disabled} = TTM.Trace.DetsStore.reset!()
+  end
+
+  test "disabled store reset does not erase trace records" do
+    protected = record("protected-reset", "s1", "s2")
+
+    assert :ok = TTM.Trace.append(protected)
+    Application.put_env(:ttm, :allow_trace_reset, false)
+
+    assert {:error, :reset_disabled} = TTM.Trace.InMemoryStore.reset!()
+    assert Enum.to_list(TTM.Trace.stream()) == [protected]
   end
 
   defp dets_path do
