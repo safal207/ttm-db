@@ -177,6 +177,27 @@ defmodule TTM.TraceTest do
     end
   end
 
+  test "stream accepts forward-compatible no-op query fields" do
+    record = record("t-1", "s1", "s2")
+
+    assert :ok = TTM.Trace.append(record)
+
+    assert Enum.to_list(
+             TTM.Trace.stream(
+               from_ts: "2026-04-23T00:00:00Z",
+               to_ts: "2026-04-24T00:00:00Z",
+               cursor: "opaque-cursor",
+               verified: :unknown
+             )
+           ) == [record]
+  end
+
+  test "stream rejects invalid verified status" do
+    assert_raise ArgumentError, ~r/invalid :verified option/, fn ->
+      TTM.Trace.stream(verified: :trusted_by_vibes) |> Enum.to_list()
+    end
+  end
+
   test "stream passes valid query opts to configured store" do
     Application.put_env(:ttm, :trace_store, CapturingStore)
     CapturingStore.reset!()
