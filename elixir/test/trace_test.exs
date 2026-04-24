@@ -8,45 +8,41 @@ defmodule TTM.TraceTest do
 
     def append(record) do
       ensure_started()
-      Agent.update(@agent, fn records -> [record | records] end)
+      Agent.update(@agent, fn state -> %{state | records: [record | state.records]} end)
       :ok
     end
 
     def stream(opts) do
       ensure_started()
 
-      Agent.get_and_update(@agent, fn records ->
-        {Enum.reverse(records), [{:stream_opts, opts} | records]}
+      Agent.get_and_update(@agent, fn state ->
+        {Enum.reverse(state.records), %{state | last_stream_opts: opts}}
       end)
       |> Stream.map(& &1)
     end
 
     def last_stream_opts do
       ensure_started()
-
-      @agent
-      |> Agent.get(fn records ->
-        records
-        |> Enum.find_value(fn
-          {:stream_opts, opts} -> opts
-          _ -> nil
-        end)
-      end)
+      Agent.get(@agent, fn state -> state.last_stream_opts end)
     end
 
     def reset! do
       ensure_started()
-      Agent.update(@agent, fn _ -> [] end)
+      Agent.update(@agent, fn _ -> initial_state() end)
       :ok
     end
 
     defp ensure_started do
       case Process.whereis(@agent) do
-        nil -> Agent.start_link(fn -> [] end, name: @agent)
+        nil -> Agent.start_link(fn -> initial_state() end, name: @agent)
         _ -> :ok
       end
 
       :ok
+    end
+
+    defp initial_state do
+      %{records: [], last_stream_opts: nil}
     end
   end
 
@@ -172,6 +168,12 @@ defmodule TTM.TraceTest do
   test "stream rejects invalid limit" do
     assert_raise ArgumentError, ~r/invalid :limit option/, fn ->
       TTM.Trace.stream(limit: -1) |> Enum.to_list()
+    end
+  end
+
+  test "stream rejects non-keyword lists" do
+    assert_raise ArgumentError, ~r/keyword list/, fn ->
+      TTM.Trace.stream([:bad]) |> Enum.to_list()
     end
   end
 

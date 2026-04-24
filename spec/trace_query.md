@@ -48,4 +48,5 @@ Boundary conditions:
 ## Notes
 
 - `from_ts`, `to_ts`, `cursor`, and `verified` can be accepted as forward-compatible fields before full execution support is implemented.
+- `verified` MAY be accepted before execution support exists, but implementations MUST document whether it is enforced or ignored.
 - Full cursor pagination is out of scope for the current phase.

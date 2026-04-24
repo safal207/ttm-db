@@ -57,18 +57,20 @@ mod tests {
         }
 
         fn iter(&self, query: TraceQuery) -> Box<dyn Iterator<Item = &TraceRecord> + '_> {
+            let TraceQuery {
+                thread_id,
+                lane,
+                limit,
+            } = query;
+
             let iter = self.records.iter().filter(move |record| {
-                query
-                    .thread_id
+                thread_id
                     .as_ref()
                     .map_or(true, |thread_id| &record.thread_id == thread_id)
-                    && query
-                        .lane
-                        .as_ref()
-                        .map_or(true, |lane| &record.lane == lane)
+                    && lane.as_ref().map_or(true, |lane| &record.lane == lane)
             });
 
-            match query.limit {
+            match limit {
                 Some(limit) => Box::new(iter.take(limit)),
                 None => Box::new(iter),
             }

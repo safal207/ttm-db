@@ -63,12 +63,17 @@ defmodule TTM.Trace do
 
   `:from_ts`, `:to_ts`, `:cursor`, and `:verified` are accepted for
   forward-compatible TraceQuery semantics and may be no-op depending on
-  store support.
+  store support. Implementations MUST document whether `:verified` is
+  enforced or ignored.
   """
   @spec stream(keyword()) :: Enumerable.t()
   def stream(opts \\ [])
 
   def stream(opts) when is_list(opts) do
+    if not Keyword.keyword?(opts) do
+      raise ArgumentError, "stream options must be a keyword list"
+    end
+
     :ok = validate_query_opts(opts)
     store().stream(opts)
   end
