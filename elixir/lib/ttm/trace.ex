@@ -27,6 +27,10 @@ defmodule TTM.Trace do
     :lane,
     :seal
   ]
+
+  @allowed_stream_opts [:thread_id, :lane, :from_ts, :to_ts, :limit, :cursor, :verified]
+  @verification_statuses [:verified, :unverified, :failed, :unknown]
+
   @string_fields [
     :thread_id,
     :transition_id,
@@ -53,11 +57,28 @@ defmodule TTM.Trace do
 
   @doc """
   Stream trace records from the configured store in append order.
+
+  Accepted query options: `:thread_id`, `:lane`, `:from_ts`, `:to_ts`,
+  `:limit`, `:cursor`, and `:verified`.
+
+  `:from_ts`, `:to_ts`, `:cursor`, and `:verified` are accepted for
+  forward-compatible TraceQuery semantics and may be no-op depending on
+  store support. Implementations MUST document whether `:verified` is
+  enforced or ignored.
   """
   @spec stream(keyword()) :: Enumerable.t()
-  def stream(opts \\ []) do
+  def stream(opts \\ [])
+
+  def stream(opts) when is_list(opts) do
+    if not Keyword.keyword?(opts) do
+      raise ArgumentError, "stream options must be a keyword list"
+    end
+
+    :ok = validate_query_opts(opts)
     store().stream(opts)
   end
+
+  def stream(_opts), do: raise(ArgumentError, "stream options must be a keyword list")
 
   @doc """
   Verify a record seal via the configured T-Trace integrity adapter.
@@ -122,4 +143,27 @@ defmodule TTM.Trace do
   end
 
   defp validate_confidence(_), do: {:error, {:validation, {:invalid_confidence, :missing}}}
+
+  defp validate_query_opts(opts) do
+    keys = Keyword.keys(opts)
+    unknown_keys = Enum.reject(keys, &(&1 in @allowed_stream_opts))
+
+    cond do
+      unknown_keys != [] ->
+        raise ArgumentError, "unknown stream options: #{inspect(unknown_keys)}"
+
+      Keyword.has_key?(opts, :limit) and not valid_limit?(Keyword.get(opts, :limit)) ->
+        raise ArgumentError, "invalid :limit option, expected non-negative integer"
+
+      Keyword.has_key?(opts, :verified) and
+          Keyword.get(opts, :verified) not in @verification_statuses ->
+        raise ArgumentError,
+              "invalid :verified option, expected one of #{inspect(@verification_statuses)}"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_limit?(limit), do: is_integer(limit) and limit >= 0
 end
