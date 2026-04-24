@@ -66,6 +66,13 @@ defmodule TTM.TraceTest do
     end
   end
 
+  defmodule VerifyBridge do
+    @moduledoc false
+
+    def verify("valid-seal", _record), do: :ok
+    def verify(_seal, _record), do: {:error, :invalid_seal}
+  end
+
   setup do
     Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
     Application.put_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
@@ -74,6 +81,7 @@ defmodule TTM.TraceTest do
       Application.delete_env(:ttm, :trace_store)
       Application.delete_env(:ttm, :trace_integrity)
       Application.delete_env(:ttm, :trace_dets_path)
+      Application.delete_env(:ttm, :trace_verify_mfa)
       File.rm(dets_path())
     end)
     :ok
@@ -217,6 +225,24 @@ defmodule TTM.TraceTest do
 
     assert :ok = TTM.Trace.verify("some-seal", record)
     assert CapturingIntegrity.last_call() == {"some-seal", record}
+  end
+
+  test "external integrity returns not configured when verifier is absent" do
+    Application.put_env(:ttm, :trace_integrity, TTM.Trace.ExternalIntegrity)
+    Application.delete_env(:ttm, :trace_verify_mfa)
+
+    assert {:error, :verify_not_configured} =
+             TTM.Trace.verify("some-seal", record("t-1", "s1", "s2"))
+  end
+
+  test "external integrity can call configured verify mfa" do
+    Application.put_env(:ttm, :trace_integrity, TTM.Trace.ExternalIntegrity)
+    Application.put_env(:ttm, :trace_verify_mfa, {VerifyBridge, :verify})
+
+    assert :ok = TTM.Trace.verify("valid-seal", record("t-1", "s1", "s2"))
+
+    assert {:error, :invalid_seal} =
+             TTM.Trace.verify("broken-seal", record("t-1", "s1", "s2"))
   end
 
   defp dets_path do
