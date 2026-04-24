@@ -419,6 +419,21 @@ defmodule TTM.TraceTest do
     assert EnvelopeIntegrity.calls() == []
   end
 
+  test "stream_envelopes can explicitly request unverified envelopes without verifier call" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    record = record("env-explicit-unverified", "s1", "s2", seal: "valid-seal")
+
+    assert :ok = TTM.Trace.append(record)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :unverified)) == [
+             %{record: record, verification_status: :unverified, verification_error: nil}
+           ]
+
+    assert EnvelopeIntegrity.calls() == []
+  end
+
   test "stream_envelopes marks verified records as verified" do
     Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
     EnvelopeIntegrity.reset!()

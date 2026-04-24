@@ -152,6 +152,10 @@ defmodule TTM.Trace do
     %{record: record, verification_status: :unverified, verification_error: nil}
   end
 
+  defp envelope_for(record, :unverified) do
+    %{record: record, verification_status: :unverified, verification_error: nil}
+  end
+
   defp envelope_for(record, _requested_status) do
     case verify(record.seal, record) do
       :ok ->

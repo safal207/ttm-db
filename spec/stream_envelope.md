@@ -37,8 +37,9 @@ A TraceEnvelope MUST contain:
 ## Verification mapping
 
 - `verify(seal, record) == :ok` → `:verified`
-- `verify(seal, record) == {:error, reason}` → `:failed` with `verification_error = reason`
-- Verifier missing / not configured / unavailable → `:unknown`
+- `verify(seal, record) == {:error, reason}` caused by integrity failure → `:failed`
+  with `verification_error = reason`
+- Verifier missing / not configured / unavailable / not implemented → `:unknown`
 - Verification not requested → `:unverified`
 
 TTM DB MUST NOT invent cryptographic semantics. It only calls the configured T-Trace adapter.
