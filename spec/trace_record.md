@@ -33,8 +33,10 @@ A TraceRecord MUST include:
 
 - Records MUST be append-only.
 - Records MUST NOT be updated or deleted.
+- Reset or deletion operations MUST NOT be part of the public trace API.
 - Projections MUST be rebuildable from the trace stream.
 - Records are addressable by append order and/or seal; identifiers MUST be immutable.
+- The pair (`thread_id`, `transition_id`) MUST be unique within the trace store.
 
 ## Notes
 
