@@ -89,6 +89,20 @@ defmodule TTM.TraceTest do
     assert Enum.to_list(TTM.Trace.stream()) == [first, second]
   end
 
+  test "stream order stays stable for longer append sequences" do
+    records =
+      1..50
+      |> Enum.map(fn idx ->
+        record("seq-#{idx}", "s#{idx}", "s#{idx + 1}")
+      end)
+
+    Enum.each(records, fn rec ->
+      assert :ok = TTM.Trace.append(rec)
+    end)
+
+    assert Enum.to_list(TTM.Trace.stream()) == records
+  end
+
   test "append validates required fields" do
     assert {:error, {:validation, {:missing_fields, missing}}} =
              TTM.Trace.append(%{thread_id: "thread-1", transition_id: "t-1"})

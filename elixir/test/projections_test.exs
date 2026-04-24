@@ -47,6 +47,12 @@ defmodule TTM.ProjectionsTest do
     def finalize(state), do: state
   end
 
+  defmodule NamelessProjection do
+    @moduledoc false
+
+    def apply(_record), do: :ok
+  end
+
   setup do
     Application.put_env(:ttm, :projections, [CountingProjection, LaneProjection])
     TTM.Trace.reset!()
@@ -70,6 +76,13 @@ defmodule TTM.ProjectionsTest do
     assert result == %{"main" => 2, "shadow" => 1}
   end
 
+  test "rebuild is deterministic for same trace stream" do
+    assert {:ok, first} = TTM.Projections.rebuild(LaneProjection)
+    assert {:ok, second} = TTM.Projections.rebuild(LaneProjection)
+
+    assert first == second
+  end
+
   test "rebuild can resolve projection by registered name" do
     assert {:ok, :ok} = TTM.Projections.rebuild("counting")
     assert CountingProjection.count() == 3
@@ -77,6 +90,10 @@ defmodule TTM.ProjectionsTest do
 
   test "rebuild rejects unknown projection name" do
     assert {:error, :projection_not_found} = TTM.Projections.rebuild("unknown")
+  end
+
+  test "rebuild rejects projections without stable name callback" do
+    assert {:error, :invalid_projection} = TTM.Projections.rebuild(NamelessProjection)
   end
 
   test "list returns registered name/module pairs" do
