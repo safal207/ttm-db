@@ -4,6 +4,8 @@ defmodule TTM.ProjectionsTest do
   defmodule CountingProjection do
     @moduledoc false
 
+    def name, do: "counting"
+
     def apply(_record) do
       Agent.update(__MODULE__, &(&1 + 1))
     end
@@ -31,6 +33,9 @@ defmodule TTM.ProjectionsTest do
     @behaviour TTM.Projection
 
     @impl true
+    def name, do: "lanes"
+
+    @impl true
     def init, do: %{}
 
     @impl true
@@ -43,12 +48,15 @@ defmodule TTM.ProjectionsTest do
   end
 
   setup do
+    Application.put_env(:ttm, :projections, [CountingProjection, LaneProjection])
     TTM.Trace.reset!()
     CountingProjection.reset!()
 
     :ok = TTM.Trace.append(record("t-1", "main"))
     :ok = TTM.Trace.append(record("t-2", "main"))
     :ok = TTM.Trace.append(record("t-3", "shadow"))
+
+    on_exit(fn -> Application.delete_env(:ttm, :projections) end)
     :ok
   end
 
@@ -62,12 +70,20 @@ defmodule TTM.ProjectionsTest do
     assert result == %{"main" => 2, "shadow" => 1}
   end
 
-  test "rebuild rejects invalid projection" do
-    assert {:error, :invalid_projection} = TTM.Projections.rebuild(:dummy)
+  test "rebuild can resolve projection by registered name" do
+    assert {:ok, :ok} = TTM.Projections.rebuild("counting")
+    assert CountingProjection.count() == 3
   end
 
-  test "list returns projections" do
-    assert TTM.Projections.list() == []
+  test "rebuild rejects unknown projection name" do
+    assert {:error, :projection_not_found} = TTM.Projections.rebuild("unknown")
+  end
+
+  test "list returns registered name/module pairs" do
+    assert TTM.Projections.list() == [
+             {"counting", CountingProjection},
+             {"lanes", LaneProjection}
+           ]
   end
 
   defp record(transition_id, lane) do
