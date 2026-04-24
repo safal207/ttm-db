@@ -16,6 +16,48 @@ pub struct TraceRecord {
     pub metadata: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum VerificationStatus {
+    Verified,
+    Unverified,
+    Failed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceEnvelope {
+    pub record: TraceRecord,
+    pub verification_status: VerificationStatus,
+    pub verification_error: Option<String>,
+}
+
+pub trait TraceVerifier {
+    fn verify(&self, record: &TraceRecord) -> Result<(), String>;
+}
+
+pub fn envelope_unverified(record: TraceRecord) -> TraceEnvelope {
+    TraceEnvelope {
+        record,
+        verification_status: VerificationStatus::Unverified,
+        verification_error: None,
+    }
+}
+
+pub fn envelope_with_verifier(record: TraceRecord, verifier: &impl TraceVerifier) -> TraceEnvelope {
+    match verifier.verify(&record) {
+        Ok(()) => TraceEnvelope {
+            record,
+            verification_status: VerificationStatus::Verified,
+            verification_error: None,
+        },
+        Err(error) => TraceEnvelope {
+            record,
+            verification_status: VerificationStatus::Failed,
+            verification_error: Some(error),
+        },
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TraceQuery {
     pub thread_id: Option<String>,
@@ -168,6 +210,46 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec!["t-1", "t-2"]);
+    }
+
+    #[test]
+    fn envelope_unverified_marks_record_as_unverified() {
+        let record = trace_record("thread-1", "t-1", "main");
+        let envelope = envelope_unverified(record.clone());
+
+        assert_eq!(
+            envelope,
+            TraceEnvelope {
+                record,
+                verification_status: VerificationStatus::Unverified,
+                verification_error: None,
+            }
+        );
+    }
+
+    #[test]
+    fn envelope_with_verifier_maps_success_and_error() {
+        struct StubVerifier;
+
+        impl TraceVerifier for StubVerifier {
+            fn verify(&self, record: &TraceRecord) -> Result<(), String> {
+                if record.transition_id == "ok" {
+                    Ok(())
+                } else {
+                    Err("invalid_seal".to_string())
+                }
+            }
+        }
+
+        let verifier = StubVerifier;
+
+        let verified = envelope_with_verifier(trace_record("thread-1", "ok", "main"), &verifier);
+        assert_eq!(verified.verification_status, VerificationStatus::Verified);
+        assert_eq!(verified.verification_error, None);
+
+        let failed = envelope_with_verifier(trace_record("thread-1", "bad", "main"), &verifier);
+        assert_eq!(failed.verification_status, VerificationStatus::Failed);
+        assert_eq!(failed.verification_error, Some("invalid_seal".to_string()));
     }
 
     #[test]
