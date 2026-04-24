@@ -73,6 +73,8 @@ defmodule TTM.TraceTest do
     on_exit(fn ->
       Application.delete_env(:ttm, :trace_store)
       Application.delete_env(:ttm, :trace_integrity)
+      Application.delete_env(:ttm, :trace_dets_path)
+      File.rm(dets_path())
     end)
     :ok
   end
@@ -131,6 +133,25 @@ defmodule TTM.TraceTest do
     assert Enum.to_list(TTM.Trace.stream()) == [entry]
   end
 
+
+  test "dets store persists appended records on disk" do
+    dets_path = dets_path()
+    File.rm(dets_path)
+
+    Application.put_env(:ttm, :trace_store, TTM.Trace.DetsStore)
+    Application.put_env(:ttm, :trace_dets_path, dets_path)
+
+    assert :ok = TTM.Trace.reset!()
+
+    first = record("dets-1", "a", "b")
+    second = record("dets-2", "b", "c")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+
+    assert Enum.to_list(TTM.Trace.stream()) == [first, second]
+  end
+
   test "verify uses default integrity adapter" do
     assert {:error, :not_implemented} =
              TTM.Trace.verify("some-seal", record("t-1", "s1", "s2"))
@@ -144,6 +165,10 @@ defmodule TTM.TraceTest do
 
     assert :ok = TTM.Trace.verify("some-seal", record)
     assert CapturingIntegrity.last_call() == {"some-seal", record}
+  end
+
+  defp dets_path do
+    Path.join(System.tmp_dir!(), "ttm_trace_test_store.dets")
   end
 
   defp record(transition_id, from_state_ref, to_state_ref, extra \\ []) do
