@@ -27,6 +27,15 @@ defmodule TTM.Trace do
     :lane,
     :seal
   ]
+  @string_fields [
+    :thread_id,
+    :transition_id,
+    :ts,
+    :from_state_ref,
+    :to_state_ref,
+    :admissibility,
+    :lane
+  ]
 
   @doc """
   Append a trace record to the configured append-only store.
@@ -34,6 +43,7 @@ defmodule TTM.Trace do
   @spec append(record()) :: :ok | {:error, term()}
   def append(record) when is_map(record) do
     with :ok <- validate_required_fields(record),
+         :ok <- validate_string_fields(record),
          :ok <- validate_confidence(record) do
       store().append(record)
     end
@@ -82,16 +92,29 @@ defmodule TTM.Trace do
 
     case missing do
       [] -> :ok
-      _ -> {:error, {:missing_fields, missing}}
+      _ -> {:error, {:validation, {:missing_fields, missing}}}
+    end
+  end
+
+  defp validate_string_fields(record) do
+    invalid =
+      Enum.filter(@string_fields, fn field ->
+        value = Map.get(record, field)
+        not (is_binary(value) and String.trim(value) != "")
+      end)
+
+    case invalid do
+      [] -> :ok
+      _ -> {:error, {:validation, {:invalid_string_fields, invalid}}}
     end
   end
 
   defp validate_confidence(%{confidence: confidence}) when is_number(confidence) do
     if confidence >= 0 and confidence <= 1,
       do: :ok,
-      else: {:error, {:invalid_confidence, confidence}}
+      else: {:error, {:validation, {:invalid_confidence, confidence}}}
   end
 
-  defp validate_confidence(_), do: {:error, {:invalid_confidence, :missing}}
+  defp validate_confidence(_), do: {:error, {:validation, {:invalid_confidence, :missing}}}
 
 end

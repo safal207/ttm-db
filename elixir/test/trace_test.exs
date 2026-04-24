@@ -90,7 +90,7 @@ defmodule TTM.TraceTest do
   end
 
   test "append validates required fields" do
-    assert {:error, {:missing_fields, missing}} =
+    assert {:error, {:validation, {:missing_fields, missing}}} =
              TTM.Trace.append(%{thread_id: "thread-1", transition_id: "t-1"})
 
     assert :ts in missing
@@ -98,8 +98,17 @@ defmodule TTM.TraceTest do
   end
 
   test "append validates confidence in range 0..1" do
-    assert {:error, {:invalid_confidence, 1.5}} =
+    assert {:error, {:validation, {:invalid_confidence, 1.5}}} =
              TTM.Trace.append(record("t-1", "s1", "s2", confidence: 1.5))
+  end
+
+  test "append validates required string fields are non-empty binaries" do
+    invalid = record("t-1", "s1", "s2", lane: " ")
+
+    assert {:error, {:validation, {:invalid_string_fields, invalid_fields}}} =
+             TTM.Trace.append(invalid)
+
+    assert :lane in invalid_fields
   end
 
 
