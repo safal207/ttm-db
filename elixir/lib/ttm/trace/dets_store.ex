@@ -43,17 +43,21 @@ defmodule TTM.Trace.DetsStore do
         close_table(table)
         Stream.map(records, & &1)
 
-      {:error, _reason} ->
-        Stream.map([], & &1)
+      {:error, reason} ->
+        raise "failed to open DETS trace store: #{inspect(reason)}"
     end
   end
 
   @doc false
   def reset! do
-    with {:ok, table} <- open_table() do
-      :ok = :dets.delete_all_objects(table)
-      close_table(table)
-      :ok
+    if Application.get_env(:ttm, :allow_trace_reset, false) do
+      with {:ok, table} <- open_table() do
+        :ok = :dets.delete_all_objects(table)
+        close_table(table)
+        :ok
+      end
+    else
+      {:error, :reset_disabled}
     end
   end
 

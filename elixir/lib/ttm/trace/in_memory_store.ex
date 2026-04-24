@@ -39,8 +39,12 @@ defmodule TTM.Trace.InMemoryStore do
 
   @doc false
   def reset! do
-    ensure_started()
-    Agent.update(@store, fn _ -> initial_state() end)
+    if Application.get_env(:ttm, :allow_trace_reset, false) do
+      ensure_started()
+      Agent.update(@store, fn _ -> initial_state() end)
+    else
+      {:error, :reset_disabled}
+    end
   end
 
   defp transition_identity(%{thread_id: thread_id, transition_id: transition_id}),

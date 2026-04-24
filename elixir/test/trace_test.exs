@@ -253,6 +253,14 @@ defmodule TTM.TraceTest do
     assert {:error, :reset_disabled} = TTM.Trace.reset!()
   end
 
+  test "store reset functions are also disabled unless explicitly allowed" do
+    Application.put_env(:ttm, :allow_trace_reset, false)
+    Application.put_env(:ttm, :trace_dets_path, dets_path())
+
+    assert {:error, :reset_disabled} = TTM.Trace.InMemoryStore.reset!()
+    assert {:error, :reset_disabled} = TTM.Trace.DetsStore.reset!()
+  end
+
   defp dets_path do
     Path.join(System.tmp_dir!(), "ttm_trace_test_store.dets")
   end
