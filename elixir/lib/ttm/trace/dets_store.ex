@@ -12,10 +12,19 @@ defmodule TTM.Trace.DetsStore do
   @impl true
   def append(record) do
     with {:ok, table} <- open_table() do
-      next = next_index(table)
-      :ok = :dets.insert(table, [{@counter_key, next}, {{:record, next}, record}])
-      close_table(table)
-      :ok
+      identity = transition_identity(record)
+
+      case :dets.insert_new(table, {{:identity, identity}, true}) do
+        true ->
+          next = next_index(table)
+          :ok = :dets.insert(table, [{@counter_key, next}, {{:record, next}, record}])
+          close_table(table)
+          :ok
+
+        false ->
+          close_table(table)
+          {:error, {:duplicate_transition, identity}}
+      end
     end
   end
 
@@ -52,6 +61,9 @@ defmodule TTM.Trace.DetsStore do
       [] -> 1
     end
   end
+
+  defp transition_identity(%{thread_id: thread_id, transition_id: transition_id}),
+    do: {thread_id, transition_id}
 
   defp open_table do
     path = table_path()

@@ -113,6 +113,18 @@ defmodule TTM.TraceTest do
              TTM.Trace.append(duplicate)
   end
 
+  test "concurrent append keeps transition identity unique" do
+    record = record("parallel-1", "s1", "s2")
+
+    results =
+      1..2
+      |> Enum.map(fn _ -> Task.async(fn -> TTM.Trace.append(record) end) end)
+      |> Enum.map(&Task.await/1)
+      |> Enum.sort()
+
+    assert results == [:ok, {:error, {:duplicate_transition, {"thread-1", "parallel-1"}}}]
+  end
+
   test "same transition_id is allowed for different threads" do
     first = record("t-1", "s1", "s2")
     second =
@@ -150,6 +162,23 @@ defmodule TTM.TraceTest do
     assert :ok = TTM.Trace.append(second)
 
     assert Enum.to_list(TTM.Trace.stream()) == [first, second]
+  end
+
+  test "dets store rejects duplicate transition identity" do
+    dets_path = dets_path()
+    File.rm(dets_path)
+
+    Application.put_env(:ttm, :trace_store, TTM.Trace.DetsStore)
+    Application.put_env(:ttm, :trace_dets_path, dets_path)
+
+    assert :ok = TTM.Trace.reset!()
+    first = record("dets-dup", "a", "b")
+    duplicate = record("dets-dup", "b", "c")
+
+    assert :ok = TTM.Trace.append(first)
+
+    assert {:error, {:duplicate_transition, {"thread-1", "dets-dup"}}} =
+             TTM.Trace.append(duplicate)
   end
 
   test "verify uses default integrity adapter" do

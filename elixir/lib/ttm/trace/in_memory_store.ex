@@ -10,7 +10,22 @@ defmodule TTM.Trace.InMemoryStore do
   @impl true
   def append(record) do
     ensure_started()
-    Agent.update(@store, fn records -> [record | records] end)
+
+    Agent.get_and_update(@store, fn %{records: records, identities: identities} = state ->
+      identity = transition_identity(record)
+
+      if MapSet.member?(identities, identity) do
+        {{:error, {:duplicate_transition, identity}}, state}
+      else
+        new_state = %{
+          state
+          | records: [record | records],
+            identities: MapSet.put(identities, identity)
+        }
+
+        {:ok, new_state}
+      end
+    end)
   end
 
   @impl true
@@ -18,24 +33,31 @@ defmodule TTM.Trace.InMemoryStore do
     ensure_started()
 
     @store
-    |> Agent.get(&Enum.reverse/1)
+    |> Agent.get(fn %{records: records} -> Enum.reverse(records) end)
     |> Stream.map(& &1)
   end
 
   @doc false
   def reset! do
     ensure_started()
-    Agent.update(@store, fn _ -> [] end)
+    Agent.update(@store, fn _ -> initial_state() end)
   end
+
+  defp transition_identity(%{thread_id: thread_id, transition_id: transition_id}),
+    do: {thread_id, transition_id}
 
   defp ensure_started do
     case Process.whereis(@store) do
       nil ->
-        {:ok, _pid} = Agent.start_link(fn -> [] end, name: @store)
+        {:ok, _pid} = Agent.start_link(fn -> initial_state() end, name: @store)
         :ok
 
       _pid ->
         :ok
     end
+  end
+
+  defp initial_state do
+    %{records: [], identities: MapSet.new()}
   end
 end
