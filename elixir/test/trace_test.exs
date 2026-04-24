@@ -85,6 +85,43 @@ defmodule TTM.TraceTest do
     def verify(_seal, _record), do: {:error, :invalid_seal}
   end
 
+  defmodule EnvelopeIntegrity do
+    @moduledoc false
+
+    @agent __MODULE__.Agent
+
+    def verify(seal, record) do
+      ensure_started()
+      Agent.update(@agent, &[{seal, record} | &1])
+
+      case seal do
+        "valid-seal" -> :ok
+        "missing-verifier-seal" -> {:error, :verify_not_configured}
+        _ -> {:error, :invalid_seal}
+      end
+    end
+
+    def calls do
+      ensure_started()
+      Agent.get(@agent, &Enum.reverse/1)
+    end
+
+    def reset! do
+      ensure_started()
+      Agent.update(@agent, fn _ -> [] end)
+      :ok
+    end
+
+    defp ensure_started do
+      case Process.whereis(@agent) do
+        nil -> Agent.start_link(fn -> [] end, name: @agent)
+        _ -> :ok
+      end
+
+      :ok
+    end
+  end
+
   setup do
     Application.put_env(:ttm, :allow_trace_reset, true)
     Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
@@ -343,6 +380,158 @@ defmodule TTM.TraceTest do
 
     assert :ok = TTM.Trace.verify("some-seal", record)
     assert CapturingIntegrity.last_call() == {"some-seal", record}
+  end
+
+  test "stream_envelopes returns record envelopes" do
+    one = record("env-1", "s1", "s2")
+    two = record("env-2", "s2", "s3")
+
+    assert :ok = TTM.Trace.append(one)
+    assert :ok = TTM.Trace.append(two)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes()) == [
+             %{record: one, verification_status: :unverified, verification_error: nil},
+             %{record: two, verification_status: :unverified, verification_error: nil}
+           ]
+  end
+
+  test "stream_envelopes without verified filter does not mutate records" do
+    record = record("env-mutation", "s1", "s2")
+
+    assert :ok = TTM.Trace.append(record)
+
+    [%{record: envelope_record}] = Enum.to_list(TTM.Trace.stream_envelopes())
+
+    assert envelope_record == record
+    refute Map.has_key?(envelope_record, :verification_status)
+    refute Map.has_key?(envelope_record, :verification_error)
+  end
+
+  test "stream_envelopes marks records as unverified when verification is not requested" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    assert :ok = TTM.Trace.append(record("env-unverified", "s1", "s2"))
+
+    [%{verification_status: status}] = Enum.to_list(TTM.Trace.stream_envelopes())
+
+    assert status == :unverified
+    assert EnvelopeIntegrity.calls() == []
+  end
+
+  test "stream_envelopes can explicitly request unverified envelopes without verifier call" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    record = record("env-explicit-unverified", "s1", "s2", seal: "valid-seal")
+
+    assert :ok = TTM.Trace.append(record)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :unverified)) == [
+             %{record: record, verification_status: :unverified, verification_error: nil}
+           ]
+
+    assert EnvelopeIntegrity.calls() == []
+  end
+
+  test "stream_envelopes marks verified records as verified" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    valid = record("env-verified", "s1", "s2", seal: "valid-seal")
+
+    assert :ok = TTM.Trace.append(valid)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :verified)) == [
+             %{record: valid, verification_status: :verified, verification_error: nil}
+           ]
+
+    assert EnvelopeIntegrity.calls() == [{"valid-seal", valid}]
+  end
+
+  test "stream_envelopes marks failed verification as failed" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    failed = record("env-failed", "s1", "s2", seal: "broken-seal")
+
+    assert :ok = TTM.Trace.append(failed)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :failed)) == [
+             %{record: failed, verification_status: :failed, verification_error: :invalid_seal}
+           ]
+  end
+
+  test "stream_envelopes marks verifier unavailable records as unknown" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    unknown = record("env-unknown", "s1", "s2", seal: "missing-verifier-seal")
+
+    assert :ok = TTM.Trace.append(unknown)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :unknown)) == [
+             %{record: unknown, verification_status: :unknown, verification_error: nil}
+           ]
+  end
+
+  test "stream_envelopes filters by verified status" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    valid = record("env-filter-1", "s1", "s2", seal: "valid-seal")
+    failed = record("env-filter-2", "s2", "s3", seal: "broken-seal")
+
+    assert :ok = TTM.Trace.append(valid)
+    assert :ok = TTM.Trace.append(failed)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :verified)) == [
+             %{record: valid, verification_status: :verified, verification_error: nil}
+           ]
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :failed)) == [
+             %{record: failed, verification_status: :failed, verification_error: :invalid_seal}
+           ]
+  end
+
+  test "stream_envelopes preserves append order" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    first = record("env-order-1", "s1", "s2", seal: "valid-seal")
+    second = record("env-order-2", "s2", "s3", seal: "valid-seal")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+
+    assert Enum.to_list(TTM.Trace.stream_envelopes(verified: :verified)) == [
+             %{record: first, verification_status: :verified, verification_error: nil},
+             %{record: second, verification_status: :verified, verification_error: nil}
+           ]
+  end
+
+  test "stream_envelopes respects existing TraceQuery filters" do
+    Application.put_env(:ttm, :trace_integrity, EnvelopeIntegrity)
+    EnvelopeIntegrity.reset!()
+
+    first = record("env-query-1", "s1", "s2", seal: "valid-seal")
+    second = record("env-query-2", "s2", "s3", lane: "shadow", seal: "valid-seal")
+
+    third =
+      record("env-query-3", "s3", "s4", seal: "valid-seal") |> Map.put(:thread_id, "thread-2")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+    assert :ok = TTM.Trace.append(third)
+
+    assert Enum.to_list(
+             TTM.Trace.stream_envelopes(
+               thread_id: "thread-1",
+               lane: "main",
+               limit: 1,
+               verified: :verified
+             )
+           ) == [%{record: first, verification_status: :verified, verification_error: nil}]
   end
 
   test "external integrity returns not configured when verifier is absent" do

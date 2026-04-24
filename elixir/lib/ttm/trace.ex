@@ -16,6 +16,14 @@ defmodule TTM.Trace do
           optional(atom() | String.t()) => term()
         }
 
+  @type verification_status :: :verified | :unverified | :failed | :unknown
+
+  @type envelope :: %{
+          required(:record) => record(),
+          required(:verification_status) => verification_status(),
+          required(:verification_error) => term() | nil
+        }
+
   @required_fields [
     :thread_id,
     :transition_id,
@@ -30,6 +38,7 @@ defmodule TTM.Trace do
 
   @allowed_stream_opts [:thread_id, :lane, :from_ts, :to_ts, :limit, :cursor, :verified]
   @verification_statuses [:verified, :unverified, :failed, :unknown]
+  @unknown_verification_reasons [:verify_not_configured, :verify_unavailable, :not_implemented]
 
   @string_fields [
     :thread_id,
@@ -81,6 +90,31 @@ defmodule TTM.Trace do
   def stream(_opts), do: raise(ArgumentError, "stream options must be a keyword list")
 
   @doc """
+  Stream trace records wrapped with read-time verification status.
+
+  This API never mutates stored trace records; verification metadata is
+  derived at read time through the configured integrity adapter.
+  """
+  @spec stream_envelopes(keyword()) :: Enumerable.t()
+  def stream_envelopes(opts \\ [])
+
+  def stream_envelopes(opts) when is_list(opts) do
+    if not Keyword.keyword?(opts) do
+      raise ArgumentError, "stream options must be a keyword list"
+    end
+
+    :ok = validate_query_opts(opts)
+
+    requested_status = Keyword.get(opts, :verified)
+
+    stream(opts)
+    |> Stream.map(fn record -> envelope_for(record, requested_status) end)
+    |> maybe_filter_envelopes_by_status(requested_status)
+  end
+
+  def stream_envelopes(_opts), do: raise(ArgumentError, "stream options must be a keyword list")
+
+  @doc """
   Verify a record seal via the configured T-Trace integrity adapter.
   """
   @spec verify(term(), record()) :: :ok | {:error, term()}
@@ -112,6 +146,33 @@ defmodule TTM.Trace do
 
   defp integrity do
     Application.get_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
+  end
+
+  defp envelope_for(record, nil) do
+    %{record: record, verification_status: :unverified, verification_error: nil}
+  end
+
+  defp envelope_for(record, :unverified) do
+    %{record: record, verification_status: :unverified, verification_error: nil}
+  end
+
+  defp envelope_for(record, _requested_status) do
+    case verify(record.seal, record) do
+      :ok ->
+        %{record: record, verification_status: :verified, verification_error: nil}
+
+      {:error, reason} when reason in @unknown_verification_reasons ->
+        %{record: record, verification_status: :unknown, verification_error: nil}
+
+      {:error, reason} ->
+        %{record: record, verification_status: :failed, verification_error: reason}
+    end
+  end
+
+  defp maybe_filter_envelopes_by_status(stream, nil), do: stream
+
+  defp maybe_filter_envelopes_by_status(stream, requested_status) do
+    Stream.filter(stream, &(&1.verification_status == requested_status))
   end
 
   defp validate_required_fields(record) do
