@@ -31,7 +31,7 @@ defmodule TTM.Trace.DetsStore do
   end
 
   @impl true
-  def stream(_opts \\ []) do
+  def stream(opts \\ []) do
     case open_table() do
       {:ok, table} ->
         records =
@@ -39,6 +39,8 @@ defmodule TTM.Trace.DetsStore do
           |> :dets.match_object({{:record, :"$1"}, :"$2"})
           |> Enum.sort_by(fn {{:record, idx}, _record} -> idx end)
           |> Enum.map(fn {{:record, _idx}, record} -> record end)
+          |> filter_records(opts)
+          |> apply_limit(opts)
 
         close_table(table)
         Stream.map(records, & &1)
@@ -90,6 +92,37 @@ defmodule TTM.Trace.DetsStore do
   end
 
   defp table_path do
-    Application.get_env(:ttm, :trace_dets_path, Path.join(System.tmp_dir!(), "ttm_trace_store.dets"))
+    Application.get_env(
+      :ttm,
+      :trace_dets_path,
+      Path.join(System.tmp_dir!(), "ttm_trace_store.dets")
+    )
+  end
+
+  defp filter_records(records, opts) do
+    records
+    |> maybe_filter_thread_id(opts)
+    |> maybe_filter_lane(opts)
+  end
+
+  defp maybe_filter_thread_id(records, opts) do
+    case Keyword.get(opts, :thread_id) do
+      nil -> records
+      thread_id -> Enum.filter(records, &(&1.thread_id == thread_id))
+    end
+  end
+
+  defp maybe_filter_lane(records, opts) do
+    case Keyword.get(opts, :lane) do
+      nil -> records
+      lane -> Enum.filter(records, &(&1.lane == lane))
+    end
+  end
+
+  defp apply_limit(records, opts) do
+    case Keyword.get(opts, :limit) do
+      nil -> records
+      limit -> Enum.take(records, limit)
+    end
   end
 end

@@ -88,6 +88,15 @@ defmodule TTM.ProjectionsTest do
     assert first == second
   end
 
+  test "rebuild is deterministic for same query" do
+    opts = [lane: "main", limit: 1]
+
+    assert {:ok, first} = TTM.Projections.rebuild(LaneProjection, opts)
+    assert {:ok, second} = TTM.Projections.rebuild(LaneProjection, opts)
+
+    assert first == second
+  end
+
   test "rebuild can resolve projection by registered name" do
     assert {:ok, :ok} = TTM.Projections.rebuild("counting")
     assert CountingProjection.count() == 3

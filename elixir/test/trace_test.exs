@@ -12,9 +12,26 @@ defmodule TTM.TraceTest do
       :ok
     end
 
-    def stream(_opts) do
+    def stream(opts) do
       ensure_started()
-      @agent |> Agent.get(&Enum.reverse/1) |> Stream.map(& &1)
+
+      Agent.get_and_update(@agent, fn records ->
+        {Enum.reverse(records), [{:stream_opts, opts} | records]}
+      end)
+      |> Stream.map(& &1)
+    end
+
+    def last_stream_opts do
+      ensure_started()
+
+      @agent
+      |> Agent.get(fn records ->
+        records
+        |> Enum.find_value(fn
+          {:stream_opts, opts} -> opts
+          _ -> nil
+        end)
+      end)
     end
 
     def reset! do
@@ -112,6 +129,60 @@ defmodule TTM.TraceTest do
     end)
 
     assert Enum.to_list(TTM.Trace.stream()) == records
+  end
+
+  test "stream filters by thread_id" do
+    first = record("t-1", "s1", "s2")
+    second = record("t-2", "s2", "s3") |> Map.put(:thread_id, "thread-2")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+
+    assert Enum.to_list(TTM.Trace.stream(thread_id: "thread-2")) == [second]
+  end
+
+  test "stream filters by lane" do
+    main = record("t-1", "s1", "s2")
+    shadow = record("t-2", "s2", "s3", lane: "shadow")
+
+    assert :ok = TTM.Trace.append(main)
+    assert :ok = TTM.Trace.append(shadow)
+
+    assert Enum.to_list(TTM.Trace.stream(lane: "shadow")) == [shadow]
+  end
+
+  test "stream applies limit after filtering in append order" do
+    first = record("t-1", "s1", "s2", lane: "main")
+    second = record("t-2", "s2", "s3", lane: "shadow")
+    third = record("t-3", "s3", "s4", lane: "main")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+    assert :ok = TTM.Trace.append(third)
+
+    assert Enum.to_list(TTM.Trace.stream(lane: "main", limit: 1)) == [first]
+  end
+
+  test "stream rejects unknown query keys" do
+    assert_raise ArgumentError, ~r/unknown stream options/, fn ->
+      TTM.Trace.stream(unknown_key: true) |> Enum.to_list()
+    end
+  end
+
+  test "stream rejects invalid limit" do
+    assert_raise ArgumentError, ~r/invalid :limit option/, fn ->
+      TTM.Trace.stream(limit: -1) |> Enum.to_list()
+    end
+  end
+
+  test "stream passes valid query opts to configured store" do
+    Application.put_env(:ttm, :trace_store, CapturingStore)
+    CapturingStore.reset!()
+
+    assert :ok = TTM.Trace.append(record("t-1", "s1", "s2"))
+    assert Enum.to_list(TTM.Trace.stream(thread_id: "thread-1", lane: "main", limit: 10)) != []
+
+    assert CapturingStore.last_stream_opts() == [thread_id: "thread-1", lane: "main", limit: 10]
   end
 
   test "append validates required fields" do
@@ -212,6 +283,28 @@ defmodule TTM.TraceTest do
 
     assert {:error, {:duplicate_transition, {"thread-1", "dets-dup"}}} =
              TTM.Trace.append(duplicate)
+  end
+
+  test "dets store stream supports thread_id, lane and limit filters" do
+    dets_path = dets_path()
+    File.rm(dets_path)
+
+    Application.put_env(:ttm, :trace_store, TTM.Trace.DetsStore)
+    Application.put_env(:ttm, :trace_dets_path, dets_path)
+
+    assert :ok = TTM.Trace.reset!()
+
+    first = record("dets-1", "a", "b")
+    second = record("dets-2", "b", "c", lane: "shadow")
+    third = record("dets-3", "c", "d") |> Map.put(:thread_id, "thread-2")
+
+    assert :ok = TTM.Trace.append(first)
+    assert :ok = TTM.Trace.append(second)
+    assert :ok = TTM.Trace.append(third)
+
+    assert Enum.to_list(TTM.Trace.stream(thread_id: "thread-1", lane: "main", limit: 1)) == [
+             first
+           ]
   end
 
   test "verify uses default integrity adapter" do

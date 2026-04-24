@@ -29,11 +29,13 @@ defmodule TTM.Trace.InMemoryStore do
   end
 
   @impl true
-  def stream(_opts \\ []) do
+  def stream(opts \\ []) do
     ensure_started()
 
     @store
     |> Agent.get(fn %{records: records} -> Enum.reverse(records) end)
+    |> filter_records(opts)
+    |> apply_limit(opts)
     |> Stream.map(& &1)
   end
 
@@ -67,5 +69,32 @@ defmodule TTM.Trace.InMemoryStore do
 
   defp initial_state do
     %{records: [], identities: MapSet.new()}
+  end
+
+  defp filter_records(records, opts) do
+    records
+    |> maybe_filter_thread_id(opts)
+    |> maybe_filter_lane(opts)
+  end
+
+  defp maybe_filter_thread_id(records, opts) do
+    case Keyword.get(opts, :thread_id) do
+      nil -> records
+      thread_id -> Enum.filter(records, &(&1.thread_id == thread_id))
+    end
+  end
+
+  defp maybe_filter_lane(records, opts) do
+    case Keyword.get(opts, :lane) do
+      nil -> records
+      lane -> Enum.filter(records, &(&1.lane == lane))
+    end
+  end
+
+  defp apply_limit(records, opts) do
+    case Keyword.get(opts, :limit) do
+      nil -> records
+      limit -> Enum.take(records, limit)
+    end
   end
 end

@@ -22,8 +22,21 @@ This document defines a minimal contract for projections.
 - `apply(record, state)`: return next state.
 - `finalize(state)`: optional final output transformation.
 
-Given the same trace stream and the same projection implementation version,
-rebuild MUST be deterministic.
+## Deterministic rebuild contract
+
+Given:
+
+- the same trace stream,
+- the same `TraceQuery`,
+- the same projection implementation version,
+
+projection rebuild **MUST** produce the same result.
+
+Additional rules:
+
+- Projection rebuild **SHOULD** consume traces in append order.
+- Projection rebuild **MUST NOT** mutate trace records.
+- Projection rebuild **MAY** store checkpoints in future versions, but checkpointing is out of scope here.
 
 Legacy `apply(record)` projections MAY be supported for compatibility,
 but are non-canonical.

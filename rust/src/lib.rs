@@ -16,9 +16,16 @@ pub struct TraceRecord {
     pub metadata: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TraceQuery {
+    pub thread_id: Option<String>,
+    pub lane: Option<String>,
+    pub limit: Option<usize>,
+}
+
 pub trait TraceStore {
     fn append(&mut self, record: TraceRecord) -> Result<(), String>;
-    fn iter(&self) -> Box<dyn Iterator<Item = &TraceRecord> + '_>;
+    fn iter(&self, query: TraceQuery) -> Box<dyn Iterator<Item = &TraceRecord> + '_>;
 }
 
 pub trait Projection {
@@ -37,7 +44,9 @@ mod tests {
 
     impl InMemoryStore {
         fn new() -> Self {
-            Self { records: Vec::new() }
+            Self {
+                records: Vec::new(),
+            }
         }
     }
 
@@ -47,8 +56,22 @@ mod tests {
             Ok(())
         }
 
-        fn iter(&self) -> Box<dyn Iterator<Item = &TraceRecord> + '_> {
-            Box::new(self.records.iter())
+        fn iter(&self, query: TraceQuery) -> Box<dyn Iterator<Item = &TraceRecord> + '_> {
+            let iter = self.records.iter().filter(move |record| {
+                query
+                    .thread_id
+                    .as_ref()
+                    .map_or(true, |thread_id| &record.thread_id == thread_id)
+                    && query
+                        .lane
+                        .as_ref()
+                        .map_or(true, |lane| &record.lane == lane)
+            });
+
+            match query.limit {
+                Some(limit) => Box::new(iter.take(limit)),
+                None => Box::new(iter),
+            }
         }
     }
 
@@ -75,47 +98,124 @@ mod tests {
     #[test]
     fn append_adds_records() {
         let mut store = InMemoryStore::new();
-        let record = TraceRecord {
-            thread_id: "thread-1".to_string(),
-            transition_id: "t-1".to_string(),
+        let record = trace_record("thread-1", "t-1", "main");
+
+        assert!(store.append(record).is_ok());
+        assert_eq!(store.iter(TraceQuery::default()).count(), 1);
+    }
+
+    #[test]
+    fn iter_filters_by_thread_id() {
+        let mut store = seeded_store();
+        store
+            .append(trace_record("thread-2", "t-4", "main"))
+            .unwrap();
+
+        let records: Vec<_> = store
+            .iter(TraceQuery {
+                thread_id: Some("thread-2".to_string()),
+                ..TraceQuery::default()
+            })
+            .collect();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].transition_id, "t-4");
+    }
+
+    #[test]
+    fn iter_filters_by_lane() {
+        let store = seeded_store();
+
+        let records: Vec<_> = store
+            .iter(TraceQuery {
+                lane: Some("shadow".to_string()),
+                ..TraceQuery::default()
+            })
+            .collect();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].transition_id, "t-3");
+    }
+
+    #[test]
+    fn iter_applies_limit() {
+        let store = seeded_store();
+
+        let records: Vec<_> = store
+            .iter(TraceQuery {
+                limit: Some(2),
+                ..TraceQuery::default()
+            })
+            .collect();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].transition_id, "t-1");
+        assert_eq!(records[1].transition_id, "t-2");
+    }
+
+    #[test]
+    fn iter_preserves_append_order_after_filtering() {
+        let store = seeded_store();
+
+        let ids: Vec<_> = store
+            .iter(TraceQuery {
+                lane: Some("main".to_string()),
+                ..TraceQuery::default()
+            })
+            .map(|record| record.transition_id.as_str())
+            .collect();
+
+        assert_eq!(ids, vec!["t-1", "t-2"]);
+    }
+
+    #[test]
+    fn deterministic_projection_rebuild_from_same_query() {
+        let store = seeded_store();
+        let query = TraceQuery {
+            lane: Some("main".to_string()),
+            ..TraceQuery::default()
+        };
+
+        let first = rebuild_counting(&store, query.clone());
+        let second = rebuild_counting(&store, query);
+
+        assert_eq!(first, second);
+    }
+
+    fn rebuild_counting(store: &impl TraceStore, query: TraceQuery) -> usize {
+        let mut projection = CountingProjection::new();
+        for record in store.iter(query) {
+            projection.apply(record);
+        }
+        projection.count
+    }
+
+    fn seeded_store() -> InMemoryStore {
+        let mut store = InMemoryStore::new();
+        store
+            .append(trace_record("thread-1", "t-1", "main"))
+            .unwrap();
+        store
+            .append(trace_record("thread-1", "t-2", "main"))
+            .unwrap();
+        store
+            .append(trace_record("thread-1", "t-3", "shadow"))
+            .unwrap();
+        store
+    }
+
+    fn trace_record(thread_id: &str, transition_id: &str, lane: &str) -> TraceRecord {
+        TraceRecord {
+            thread_id: thread_id.to_string(),
+            transition_id: transition_id.to_string(),
             ts: "now".to_string(),
             from_state_ref: "a".to_string(),
             to_state_ref: "b".to_string(),
             admissibility: "rule".to_string(),
             confidence: 1.0,
-            lane: "main".to_string(),
+            lane: lane.to_string(),
             seal: None,
             metadata: HashMap::new(),
-        };
-
-        assert!(store.append(record).is_ok());
-        assert_eq!(store.iter().count(), 1);
-    }
-
-    #[test]
-    fn projection_rebuild_consumes_stream() {
-        let mut store = InMemoryStore::new();
-        for idx in 0..3 {
-            let record = TraceRecord {
-                thread_id: "thread-1".to_string(),
-                transition_id: format!("t-{idx}"),
-                ts: "now".to_string(),
-                from_state_ref: "a".to_string(),
-                to_state_ref: "b".to_string(),
-                admissibility: "rule".to_string(),
-                confidence: 1.0,
-                lane: "main".to_string(),
-                seal: None,
-                metadata: HashMap::new(),
-            };
-            store.append(record).unwrap();
         }
-
-        let mut projection = CountingProjection::new();
-        for record in store.iter() {
-            projection.apply(record);
-        }
-
-        assert_eq!(projection.count, 3);
     }
 }
