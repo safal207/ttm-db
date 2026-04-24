@@ -33,10 +33,47 @@ defmodule TTM.TraceTest do
     end
   end
 
+
+  defmodule CapturingIntegrity do
+    @moduledoc false
+
+    @agent __MODULE__.Agent
+
+    def verify(seal, record) do
+      ensure_started()
+      Agent.update(@agent, fn _ -> {seal, record} end)
+      :ok
+    end
+
+    def last_call do
+      ensure_started()
+      Agent.get(@agent, & &1)
+    end
+
+    def reset! do
+      ensure_started()
+      Agent.update(@agent, fn _ -> nil end)
+      :ok
+    end
+
+    defp ensure_started do
+      case Process.whereis(@agent) do
+        nil -> Agent.start_link(fn -> nil end, name: @agent)
+        _ -> :ok
+      end
+
+      :ok
+    end
+  end
+
   setup do
     Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
+    Application.put_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
     TTM.Trace.reset!()
-    on_exit(fn -> Application.delete_env(:ttm, :trace_store) end)
+    on_exit(fn ->
+      Application.delete_env(:ttm, :trace_store)
+      Application.delete_env(:ttm, :trace_integrity)
+    end)
     :ok
   end
 
@@ -94,9 +131,19 @@ defmodule TTM.TraceTest do
     assert Enum.to_list(TTM.Trace.stream()) == [entry]
   end
 
-  test "verify exists as T-Trace integration stub" do
+  test "verify uses default integrity adapter" do
     assert {:error, :not_implemented} =
              TTM.Trace.verify("some-seal", record("t-1", "s1", "s2"))
+  end
+
+  test "verify delegates to configured integrity adapter" do
+    Application.put_env(:ttm, :trace_integrity, CapturingIntegrity)
+    CapturingIntegrity.reset!()
+
+    record = record("t-1", "s1", "s2")
+
+    assert :ok = TTM.Trace.verify("some-seal", record)
+    assert CapturingIntegrity.last_call() == {"some-seal", record}
   end
 
   defp record(transition_id, from_state_ref, to_state_ref, extra \\ []) do

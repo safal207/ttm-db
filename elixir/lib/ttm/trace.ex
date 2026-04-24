@@ -51,12 +51,14 @@ defmodule TTM.Trace do
   end
 
   @doc """
-  Verify a record seal via T-Trace integration.
-
-  Stub for future integration.
+  Verify a record seal via the configured T-Trace integrity adapter.
   """
-  @spec verify(term(), record()) :: {:error, :not_implemented}
-  def verify(_seal, _record), do: {:error, :not_implemented}
+  @spec verify(term(), record()) :: :ok | {:error, term()}
+  def verify(seal, record) when is_map(record) do
+    integrity().verify(seal, record)
+  end
+
+  def verify(_seal, _record), do: {:error, :invalid_record}
 
   @doc false
   @spec reset!() :: :ok
@@ -70,6 +72,10 @@ defmodule TTM.Trace do
 
   defp store do
     Application.get_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
+  end
+
+  defp integrity do
+    Application.get_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
   end
 
   defp validate_required_fields(record) do
