@@ -35,6 +35,7 @@ A TraceRecord MUST include:
 - Records MUST NOT be updated or deleted.
 - Projections MUST be rebuildable from the trace stream.
 - Records are addressable by append order and/or seal; identifiers MUST be immutable.
+- The pair (`thread_id`, `transition_id`) MUST be unique within the trace store.
 
 ## Notes
 

@@ -70,12 +70,18 @@ defmodule TTM.Trace do
   def verify(_seal, _record), do: {:error, :invalid_record}
 
   @doc false
-  @spec reset!() :: :ok
+  @spec reset!() :: :ok | {:error, :reset_disabled}
   def reset! do
-    if function_exported?(store(), :reset!, 0) do
-      store().reset!()
+    if Application.get_env(:ttm, :allow_trace_reset, false) do
+      configured_store = store()
+
+      if function_exported?(configured_store, :reset!, 0) do
+        configured_store.reset!()
+      else
+        :ok
+      end
     else
-      :ok
+      {:error, :reset_disabled}
     end
   end
 

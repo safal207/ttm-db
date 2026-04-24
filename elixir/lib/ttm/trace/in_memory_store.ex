@@ -49,7 +49,11 @@ defmodule TTM.Trace.InMemoryStore do
   defp ensure_started do
     case Process.whereis(@store) do
       nil ->
-        {:ok, _pid} = Agent.start_link(fn -> initial_state() end, name: @store)
+        case Agent.start_link(fn -> initial_state() end, name: @store) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+        end
+
         :ok
 
       _pid ->

@@ -14,6 +14,7 @@ defmodule TTM.Projections do
   - legacy callback set: `name/0`, `apply/1`, optional `finalize/0`
 
   The projection can be passed as module or by registered name.
+  Legacy projections are supported for compatibility, but are non-canonical.
   """
   @spec rebuild(projection() | projection_name(), keyword()) :: {:ok, term()} | {:error, term()}
   def rebuild(projection_or_name, opts \\ [])

@@ -54,15 +54,19 @@ defmodule TTM.ProjectionsTest do
   end
 
   setup do
+    Application.put_env(:ttm, :allow_trace_reset, true)
     Application.put_env(:ttm, :projections, [CountingProjection, LaneProjection])
-    TTM.Trace.reset!()
+    :ok = TTM.Trace.reset!()
     CountingProjection.reset!()
 
     :ok = TTM.Trace.append(record("t-1", "main"))
     :ok = TTM.Trace.append(record("t-2", "main"))
     :ok = TTM.Trace.append(record("t-3", "shadow"))
 
-    on_exit(fn -> Application.delete_env(:ttm, :projections) end)
+    on_exit(fn ->
+      Application.delete_env(:ttm, :projections)
+      Application.delete_env(:ttm, :allow_trace_reset)
+    end)
     :ok
   end
 

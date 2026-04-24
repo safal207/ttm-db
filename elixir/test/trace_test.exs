@@ -74,10 +74,12 @@ defmodule TTM.TraceTest do
   end
 
   setup do
+    Application.put_env(:ttm, :allow_trace_reset, true)
     Application.put_env(:ttm, :trace_store, TTM.Trace.InMemoryStore)
     Application.put_env(:ttm, :trace_integrity, TTM.Trace.NoopIntegrity)
-    TTM.Trace.reset!()
+    :ok = TTM.Trace.reset!()
     on_exit(fn ->
+      Application.delete_env(:ttm, :allow_trace_reset)
       Application.delete_env(:ttm, :trace_store)
       Application.delete_env(:ttm, :trace_integrity)
       Application.delete_env(:ttm, :trace_dets_path)
@@ -243,6 +245,12 @@ defmodule TTM.TraceTest do
 
     assert {:error, :invalid_seal} =
              TTM.Trace.verify("broken-seal", record("t-1", "s1", "s2"))
+  end
+
+  test "reset is disabled unless explicitly allowed" do
+    Application.put_env(:ttm, :allow_trace_reset, false)
+
+    assert {:error, :reset_disabled} = TTM.Trace.reset!()
   end
 
   defp dets_path do

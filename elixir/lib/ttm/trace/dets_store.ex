@@ -3,6 +3,8 @@ defmodule TTM.Trace.DetsStore do
   Disk-backed append-only trace store based on DETS.
 
   This store persists records between BEAM restarts.
+  It is an experimental/dev adapter and MUST NOT be treated as
+  canonical TTM DB storage.
   """
 
   @behaviour TTM.Trace.Store
